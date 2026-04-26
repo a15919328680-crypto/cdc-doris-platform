@@ -137,7 +137,7 @@ public class FlinkTaskService {
         task.setCheckpoint(null);
         syncTaskMapper.update(task);
 
-        startTask(task, jobArgs);
+        startTask(task, null);
     }
 
     public String getTaskLogs(SyncTask task) {

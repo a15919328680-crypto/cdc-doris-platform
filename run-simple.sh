@@ -1,0 +1,1 @@
+java -cp "$(find ~/.m2/repository -name '*.jar' | grep -E '(spring-boot|mybatis|mysql)' | tr '\n' ':')backend/src/main/java:backend/target/classes" com.cdc.CdcDorisPlatformApplication 2>&1 &

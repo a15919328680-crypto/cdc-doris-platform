@@ -31,6 +31,12 @@
         </dependency>
 
         <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jdbc</artifactId>
         </dependency>
@@ -58,6 +64,7 @@
             <version>2.0.32</version>
         </dependency>
 
+        <!-- Flink CDC 依赖 - 用于提交 Flink 任务到 K8s -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-streaming-java</artifactId>
@@ -69,35 +76,29 @@
             <groupId>com.ververica</groupId>
             <artifactId>flink-connector-mysql-cdc</artifactId>
             <version>${mysql.cdc.version}</version>
+            <scope>provided</scope>
         </dependency>
 
+        <!-- Doris Connector - 注释掉，实际部署时在 Flink/lib 目录放置该 JAR
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>flink-doris-connector-1.17</artifactId>
-            <version>${doris.connector.version}</version>
+            <version>1.3.0</version>
+            <scope>provided</scope>
         </dependency>
+        -->
 
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-clients</artifactId>
             <version>${flink.version}</version>
+            <scope>provided</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-kubernetes</artifactId>
-            <version>${flink.version}</version>
-        </dependency>
-
+        <!-- Kubernetes 客户端 - 用于操作 K8s -->
         <dependency>
             <groupId>io.kubernetes</groupId>
             <artifactId>client-java</artifactId>
-            <version>18.0.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>io.kubernetes</groupId>
-            <artifactId>client-java-extended</artifactId>
             <version>18.0.0</version>
         </dependency>
 
