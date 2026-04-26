@@ -1,15 +1,12 @@
 package com.cdc.controller;
 
-import com.cdc.mapper.DatabaseConnectionMapper;
-import com.cdc.mapper.SyncTaskMapper;
 import com.cdc.service.FlinkCDCYamlService;
 import lombok.extern.slf4j.Slf4j;
+import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Slf4j
 @RestController
@@ -17,24 +14,21 @@ import java.util.Map;
 public class CdcController {
 
     @Autowired
-    private SyncTaskMapper taskMapper;
-
-    @Autowired
-    private DatabaseConnectionMapper connectionMapper;
+    private SqlSessionTemplate sqlSession;
 
     @Autowired
     private FlinkCDCYamlService yamlService;
 
     @GetMapping("/connections")
     public List<Map<String, Object>> listConnections() {
-        return connectionMapper.listAll();
+        return sqlSession.selectList("com.cdc.mapper.ConnectionMapper.listAll");
     }
 
     @PostMapping("/connections")
     public Map<String, Object> addConnection(@RequestBody Map<String, Object> conn) {
         Map<String, Object> result = new HashMap<>();
         try {
-            connectionMapper.insert(conn);
+            sqlSession.insert("com.cdc.mapper.ConnectionMapper.insert", conn);
             result.put("success", true);
         } catch (Exception e) {
             result.put("success", false);
@@ -47,7 +41,7 @@ public class CdcController {
     public Map<String, Object> deleteConnection(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            connectionMapper.delete(id);
+            sqlSession.delete("com.cdc.mapper.ConnectionMapper.delete", id);
             result.put("success", true);
         } catch (Exception e) {
             result.put("success", false);
@@ -58,25 +52,16 @@ public class CdcController {
 
     @GetMapping("/tasks")
     public List<Map<String, Object>> listTasks() {
-        return taskMapper.listAll();
+        return sqlSession.selectList("com.cdc.mapper.TaskMapper.listAll");
     }
 
     @PostMapping("/tasks")
     public Map<String, Object> addTask(@RequestBody Map<String, Object> task) {
         Map<String, Object> result = new HashMap<>();
         try {
-            Long sourceId = (Integer) task.get("sourceId");
-            Long targetId = (Integer) task.get("targetId");
-            List<Map<String, Object>> sources = connectionMapper.listAll();
-            List<Map<String, Object>> targets = connectionMapper.listAll();
-            
-            Map<String, Object> source = sources.stream()
-                .filter(s -> s.get("id").equals(sourceId))
-                .findFirst().orElse(null);
-                
-            Map<String, Object> target = targets.stream()
-                .filter(s -> s.get("id").equals(targetId))
-                .findFirst().orElse(null);
+            List<Map<String, Object>> connections = listConnections();
+            Map<String, Object> source = connections.stream().filter(c -> c.get("id").equals(task.get("sourceId"))).findFirst().orElse(null);
+            Map<String, Object> target = connections.stream().filter(c -> c.get("id").equals(task.get("targetId"))).findFirst().orElse(null);
             
             if (source == null || target == null) {
                 result.put("success", false);
@@ -94,7 +79,7 @@ public class CdcController {
             
             task.put("yamlConfig", yaml);
             task.put("status", "CREATED");
-            taskMapper.insert(task);
+            sqlSession.insert("com.cdc.mapper.TaskMapper.insert", task);
             
             result.put("success", true);
             result.put("yaml", yaml);
@@ -109,13 +94,9 @@ public class CdcController {
     public Map<String, Object> getTaskYaml(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            Map<String, Object> task = taskMapper.getById(id);
-            if (task == null) {
-                result.put("success", false);
-                return result;
-            }
-            result.put("success", true);
-            result.put("yaml", task.get("yamlConfig"));
+            Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
+            result.put("success", task != null);
+            if (task != null) result.put("yaml", task.get("yamlConfig"));
         } catch (Exception e) {
             result.put("success", false);
         }
@@ -126,7 +107,7 @@ public class CdcController {
     public Map<String, Object> deleteTask(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            taskMapper.delete(id);
+            sqlSession.delete("com.cdc.mapper.TaskMapper.delete", id);
             result.put("success", true);
         } catch (Exception e) {
             result.put("success", false);
