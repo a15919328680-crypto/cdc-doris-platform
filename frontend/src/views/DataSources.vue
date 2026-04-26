@@ -4,40 +4,42 @@
       <h2>数据库连接</h2>
       <el-button type="primary" @click="showAddDialog">
         <el-icon><Plus /></el-icon>
-        添加连接
+        <span class="btn-text">添加连接</span>
       </el-button>
     </div>
 
-    <el-table :data="connections" style="width: 100%">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="name" label="名称" />
-      <el-table-column prop="type" label="类型" width="100">
+    <el-table :data="connections" style="width: 100%" class="responsive-table">
+      <el-table-column prop="id" label="ID" width="70" />
+      <el-table-column prop="name" label="名称" min-width="120" />
+      <el-table-column prop="type" label="类型" width="90">
         <template #default="{ row }">
-          <el-tag :type="row.type === 'MYSQL' ? 'warning' : 'success'">
+          <el-tag :type="row.type === 'MYSQL' ? 'warning' : 'success'" size="small">
             {{ row.type }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="role" label="角色" width="100">
+      <el-table-column prop="role" label="角色" width="80">
         <template #default="{ row }">
-          <el-tag effect="plain" v-if="row.role === 'SOURCE'">数据源</el-tag>
-          <el-tag effect="plain" type="success" v-else-if="row.role === 'TARGET'">目标库</el-tag>
-          <el-tag effect="plain" type="info" v-else>通用</el-tag>
+          <el-tag effect="plain" size="small" v-if="row.role === 'SOURCE'">数据源</el-tag>
+          <el-tag effect="plain" type="success" size="small" v-else-if="row.role === 'TARGET'">目标库</el-tag>
+          <el-tag effect="plain" type="info" size="small" v-else>通用</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="host" label="主机" />
-      <el-table-column prop="port" label="端口" width="80" />
-      <el-table-column prop="description" label="描述" />
-      <el-table-column label="操作" width="300">
+      <el-table-column prop="host" label="主机" min-width="120" />
+      <el-table-column prop="port" label="端口" width="70" />
+      <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
+      <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="testConnection(row)">测试连接</el-button>
-          <el-button size="small" type="primary" @click="showEditDialog(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="deleteConnection(row.id)">删除</el-button>
+          <div class="action-buttons">
+            <el-button size="small" @click="testConnection(row)">测试</el-button>
+            <el-button size="small" type="primary" @click="showEditDialog(row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="deleteConnection(row.id)">删除</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600px">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="600px" :fullscreen="isMobile">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="连接名称" prop="name">
           <el-input v-model="form.name" placeholder="如：本地 MySQL、Doris 集群" />
@@ -88,6 +90,7 @@ import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 
+const isMobile = ref(window.innerWidth < 768)
 const connections = ref([])
 const dialogVisible = ref(false)
 const dialogTitle = ref('添加连接')
@@ -209,17 +212,87 @@ onMounted(() => {
 
 <style scoped>
 .data-sources {
-  padding: 20px;
+  padding: 0;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .page-header h2 {
   margin: 0;
+  font-size: 18px;
+}
+
+.btn-text {
+  margin-left: 4px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.responsive-table {
+  background: white;
+  border-radius: 4px;
+}
+
+/* 移动端优化 */
+@media screen and (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .btn-text {
+    display: none;
+  }
+  
+  .page-header h2 {
+    font-size: 16px;
+  }
+  
+  .responsive-table ::v-deep(.el-table__header-wrapper) {
+    font-size: 12px;
+  }
+  
+  .responsive-table ::v-deep(.el-table__body-wrapper) {
+    font-size: 12px;
+  }
+  
+  .responsive-table ::v-deep(.el-table th) {
+    padding: 8px 0;
+  }
+  
+  .responsive-table ::v-deep(.el-table td) {
+    padding: 8px 0;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .action-buttons .el-button {
+    width: 100%;
+  }
+  
+  ::v-deep(.el-dialog) {
+    width: 95% !important;
+    margin: 10px auto !important;
+  }
+  
+  ::v-deep(.el-form-item) {
+    margin-bottom: 16px;
+  }
+  
+  ::v-deep(.el-form-item__label) {
+    font-size: 13px;
+  }
 }
 </style>

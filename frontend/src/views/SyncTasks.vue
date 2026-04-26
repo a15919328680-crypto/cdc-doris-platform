@@ -1,43 +1,43 @@
 <template>
   <div class="sync-tasks">
     <div class="page-header">
-      <h2>同步任务管理</h2>
+      <h2>同步任务（YAML）</h2>
       <el-button type="primary" @click="showAddDialog">
         <el-icon><Plus /></el-icon>
-        创建任务
+        <span class="btn-text">创建任务</span>
       </el-button>
     </div>
 
-    <el-table :data="tasks" style="width: 100%">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="taskName" label="任务名称" width="200" />
-      <el-table-column prop="syncMode" label="模式" width="100">
+    <el-table :data="tasks" style="width: 100%" class="responsive-table">
+      <el-table-column prop="id" label="ID" width="70" />
+      <el-table-column prop="taskName" label="任务名称" min-width="150" />
+      <el-table-column prop="syncMode" label="模式" width="80">
         <template #default="{ row }">
           <el-tag size="small">{{ row.syncMode || 'CDC' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="源 → 目标" min-width="250">
+      <el-table-column label="源 → 目标" min-width="200">
         <template #default="{ row }">
           <div class="route-flow">
-            <span title="源数据库">{{ row.sourceDatabase }}.{{ row.sourceTable }}</span>
+            <span class="route-text">{{ row.sourceDatabase }}.{{ row.sourceTable }}</span>
             <el-icon class="arrow-icon"><Right /></el-icon>
-            <span title="目标数据库">{{ row.targetDatabase }}</span>
+            <span class="route-text">{{ row.targetDatabase }}</span>
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="parallelism" label="并行度" width="100" />
-      <el-table-column prop="status" label="状态" width="120">
+      <el-table-column prop="parallelism" label="并行度" width="70" />
+      <el-table-column prop="status" label="状态" width="90">
         <template #default="{ row }">
-          <el-tag :type="getStatusType(row.status)">{{ row.status }}</el-tag>
+          <el-tag :type="getStatusType(row.status)" size="small">{{ row.status }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="380" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="viewYaml(row)">YAML</el-button>
-          <el-button size="small" type="success" :disabled="row.status !== 'CREATED'" @click="startTask(row.id)">启动</el-button>
-          <el-button size="small" type="warning" :disabled="row.status !== 'RUNNING'" @click="stopTask(row.id)">停止</el-button>
-          <el-button size="small" type="primary" @click="showEditDialog(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="deleteTask(row.id)">删除</el-button>
+          <div class="action-buttons">
+            <el-button size="small" @click="viewYaml(row)">YAML</el-button>
+            <el-button size="small" type="success" :disabled="row.status !== 'CREATED'" @click="startTask(row.id)">启动</el-button>
+            <el-button size="small" type="warning" :disabled="row.status !== 'RUNNING'" @click="stopTask(row.id)">停止</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -349,18 +349,23 @@ onMounted(() => {
 
 <style scoped>
 .sync-tasks {
-  padding: 20px;
+  padding: 0;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .page-header h2 {
   margin: 0;
+  font-size: 18px;
+}
+
+.btn-text {
+  margin-left: 4px;
 }
 
 .route-flow {
@@ -407,5 +412,57 @@ onMounted(() => {
   line-height: 1.5;
   max-height: 500px;
   overflow: auto;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.responsive-table {
+  background: white;
+  border-radius: 4px;
+}
+
+/* 移动端优化 */
+@media screen and (max-width: 768px) {
+  .route-text {
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  .btn-text {
+    display: none;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .action-buttons .el-button {
+    width: 100%;
+  }
+  
+  .responsive-table ::v-deep(.el-table__header-wrapper) {
+    font-size: 12px;
+  }
+  
+  .responsive-table ::v-deep(.el-table__body-wrapper) {
+    font-size: 12px;
+  }
+  
+  ::v-deep(.el-dialog) {
+    width: 95% !important;
+    margin: 10px auto !important;
+  }
 }
 </style>
