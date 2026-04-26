@@ -13,7 +13,8 @@ public class SyncTask {
     private Long targetId;
     private String targetDatabase;
     private String targetTable;
-    private String status;
+    private String syncMode; // FULL, INCREMENTAL, CDC
+    private String status; // CREATED, RUNNING, STOPPED, CANCELLED, FAILED
     private String flinkJobId;
     private String checkpoint;
     private Long syncCount;
@@ -22,4 +23,7 @@ public class SyncTask {
     private LocalDateTime updateTime;
     private LocalDateTime lastStartTime;
     private LocalDateTime lastStopTime;
+    
+    private DatabaseConnection source;
+    private DatabaseConnection target;
 }
