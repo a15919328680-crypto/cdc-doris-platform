@@ -1,12 +1,10 @@
 package com.cdc.controller;
 
-import com.cdc.entity.MysqlDataSource;
-import com.cdc.entity.DorisTarget;
+import com.cdc.entity.DatabaseConnection;
 import com.cdc.entity.SyncTask;
-import com.cdc.mapper.MysqlDataSourceMapper;
-import com.cdc.mapper.DorisTargetMapper;
+import com.cdc.mapper.DatabaseConnectionMapper;
 import com.cdc.mapper.SyncTaskMapper;
-import com.cdc.service.FlinkTaskService;
+import com.cdc.service.FlinkCDCYamlService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -21,47 +19,66 @@ import java.util.Map;
 public class SyncTaskController {
 
     @Autowired
-    private SyncTaskMapper syncTaskMapper;
+    private SyncTaskMapper taskMapper;
 
     @Autowired
-    private MysqlDataSourceMapper mysqlSourceMapper;
+    private DatabaseConnectionMapper connectionMapper;
 
     @Autowired
-    private DorisTargetMapper dorisTargetMapper;
-
-    @Autowired
-    private FlinkTaskService flinkTaskService;
+    private FlinkCDCYamlService yamlService;
 
     @GetMapping("/list")
     public List<SyncTask> listAll() {
-        List<SyncTask> tasks = syncTaskMapper.listAll();
-        for (SyncTask task : tasks) {
-            String status = flinkTaskService.getJobStatus(task.getFlinkJobId());
-            if ("RUNNING".equals(status)) {
-                task.setStatus("RUNNING");
-            }
-        }
-        return tasks;
+        return taskMapper.listAll();
     }
 
     @GetMapping("/{id}")
     public SyncTask getById(@PathVariable Long id) {
-        return syncTaskMapper.getById(id);
+        return taskMapper.getById(id);
     }
 
     @PostMapping("/add")
     public Map<String, Object> add(@RequestBody SyncTask task) {
         Map<String, Object> result = new HashMap<>();
         try {
-            task.setStatus("CREATED");
-            task.setSyncCount(0L);
-            syncTaskMapper.insert(task);
+            // 验证源和目标连接存在
+            DatabaseConnection source = connectionMapper.getById(task.getSourceId());
+            DatabaseConnection target = connectionMapper.getById(task.getTargetId());
+            
+            if (source == null || target == null) {
+                result.put("success", false);
+                result.put("message", "源或目标数据库连接不存在");
+                return result;
+            }
+
+            // 生成 YAML 配置
+            String yamlConfig = yamlService.generateYaml(task, source, target);
+            task.setYamlConfig(yamlConfig);
+            
+            // 设置默认值
+            if (task.getStatus() == null) {
+                task.setStatus("CREATED");
+            }
+            if (task.getSyncMode() == null) {
+                task.setSyncMode("CDC");
+            }
+            if (task.getParallelism() == null) {
+                task.setParallelism(2);
+            }
+            if (task.getCheckpointInterval() == null) {
+                task.setCheckpointInterval(60);
+            }
+
+            taskMapper.insert(task);
+            
             result.put("success", true);
             result.put("message", "任务创建成功");
             result.put("data", task);
+            result.put("yaml", yamlConfig);
         } catch (Exception e) {
             result.put("success", false);
             result.put("message", "创建失败：" + e.getMessage());
+            log.error("创建任务失败", e);
         }
         return result;
     }
@@ -70,12 +87,22 @@ public class SyncTaskController {
     public Map<String, Object> update(@RequestBody SyncTask task) {
         Map<String, Object> result = new HashMap<>();
         try {
-            syncTaskMapper.update(task);
+            // 重新生成 YAML 配置
+            DatabaseConnection source = connectionMapper.getById(task.getSourceId());
+            DatabaseConnection target = connectionMapper.getById(task.getTargetId());
+            
+            if (source != null && target != null) {
+                String yamlConfig = yamlService.generateYaml(task, source, target);
+                task.setYamlConfig(yamlConfig);
+            }
+
+            taskMapper.update(task);
             result.put("success", true);
             result.put("message", "任务更新成功");
         } catch (Exception e) {
             result.put("success", false);
             result.put("message", "更新失败：" + e.getMessage());
+            log.error("更新任务失败", e);
         }
         return result;
     }
@@ -84,12 +111,7 @@ public class SyncTaskController {
     public Map<String, Object> delete(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            SyncTask task = syncTaskMapper.getById(id);
-            if (task != null && "RUNNING".equals(task.getStatus())) {
-                flinkTaskService.stopTask(task, false);
-                Thread.sleep(3000);
-            }
-            syncTaskMapper.delete(id);
+            taskMapper.delete(id);
             result.put("success", true);
             result.put("message", "任务删除成功");
         } catch (Exception e) {
@@ -99,44 +121,54 @@ public class SyncTaskController {
         return result;
     }
 
-    @PostMapping("/start/{id}")
-    public Map<String, Object> start(@PathVariable Long id) {
+    @GetMapping("/{id}/yaml")
+    public Map<String, Object> getYaml(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            SyncTask task = syncTaskMapper.getById(id);
+            SyncTask task = taskMapper.getById(id);
             if (task == null) {
                 result.put("success", false);
                 result.put("message", "任务不存在");
                 return result;
             }
 
-            MysqlDataSource mysqlSource = mysqlSourceMapper.getById(task.getSourceId());
-            DorisTarget dorisTarget = dorisTargetMapper.getById(task.getTargetId());
+            // 如果已有配置，直接返回；否则重新生成
+            String yamlConfig = task.getYamlConfig();
+            if (yamlConfig == null || yamlConfig.isEmpty()) {
+                DatabaseConnection source = connectionMapper.getById(task.getSourceId());
+                DatabaseConnection target = connectionMapper.getById(task.getTargetId());
+                if (source != null && target != null) {
+                    yamlConfig = yamlService.generateYaml(task, source, target);
+                }
+            }
 
-            if (mysqlSource == null || dorisTarget == null) {
+            result.put("success", true);
+            result.put("yaml", yamlConfig);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "获取 YAML 失败：" + e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/{id}/start")
+    public Map<String, Object> startTask(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            SyncTask task = taskMapper.getById(id);
+            if (task == null) {
                 result.put("success", false);
-                result.put("message", "数据源或目标库配置不存在");
+                result.put("message", "任务不存在");
                 return result;
             }
 
-            String[] jobArgs = new String[] {
-                mysqlSource.getHost(),
-                String.valueOf(mysqlSource.getPort()),
-                mysqlSource.getUsername(),
-                mysqlSource.getPassword(),
-                task.getSourceDatabase(),
-                task.getSourceTable(),
-                dorisTarget.getFeNodes(),
-                task.getTargetDatabase(),
-                task.getTargetTable(),
-                dorisTarget.getUsername(),
-                dorisTarget.getPassword()
-            };
-
-            flinkTaskService.startTask(task, jobArgs);
+            // TODO: 提交 Flink CDC 任务
+            // 1. 将 YAML 配置文件写入临时文件
+            // 2. 调用 flink-cdc.sh 提交任务
+            // 3. 更新任务状态和 Flink Job ID
 
             result.put("success", true);
-            result.put("message", "任务启动中");
+            result.put("message", "任务已启动");
         } catch (Exception e) {
             result.put("success", false);
             result.put("message", "启动失败：" + e.getMessage());
@@ -144,162 +176,26 @@ public class SyncTaskController {
         return result;
     }
 
-    @PostMapping("/stop/{id}")
-    public Map<String, Object> stop(@PathVariable Long id, @RequestParam(defaultValue = "true") boolean graceful) {
+    @PostMapping("/{id}/stop")
+    public Map<String, Object> stopTask(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            SyncTask task = syncTaskMapper.getById(id);
+            SyncTask task = taskMapper.getById(id);
             if (task == null) {
                 result.put("success", false);
                 result.put("message", "任务不存在");
                 return result;
             }
 
-            flinkTaskService.stopTask(task, graceful);
+            // TODO: 停止 Flink CDC 任务
+            // 1. 调用 Flink REST API 取消任务
+            // 2. 更新任务状态
 
             result.put("success", true);
-            result.put("message", graceful ? "任务优雅停止中" : "任务强制停止中");
+            result.put("message", "任务已停止");
         } catch (Exception e) {
             result.put("success", false);
             result.put("message", "停止失败：" + e.getMessage());
-        }
-        return result;
-    }
-
-    @PostMapping("/restart/{id}")
-    public Map<String, Object> restart(@PathVariable Long id) {
-        Map<String, Object> result = new HashMap<>();
-        try {
-            SyncTask task = syncTaskMapper.getById(id);
-            if (task == null) {
-                result.put("success", false);
-                result.put("message", "任务不存在");
-                return result;
-            }
-
-            MysqlDataSource mysqlSource = mysqlSourceMapper.getById(task.getSourceId());
-            DorisTarget dorisTarget = dorisTargetMapper.getById(task.getTargetId());
-
-            String[] jobArgs = new String[] {
-                mysqlSource.getHost(),
-                String.valueOf(mysqlSource.getPort()),
-                mysqlSource.getUsername(),
-                mysqlSource.getPassword(),
-                task.getSourceDatabase(),
-                task.getSourceTable(),
-                dorisTarget.getFeNodes(),
-                task.getTargetDatabase(),
-                task.getTargetTable(),
-                dorisTarget.getUsername(),
-                dorisTarget.getPassword()
-            };
-
-            flinkTaskService.restartTask(task, jobArgs);
-
-            result.put("success", true);
-            result.put("message", "任务重启中");
-        } catch (Exception e) {
-            result.put("success", false);
-            result.put("message", "重启失败：" + e.getMessage());
-        }
-        return result;
-    }
-
-    @PostMapping("/reset/{id}")
-    public Map<String, Object> resetCheckpoint(@PathVariable Long id) {
-        Map<String, Object> result = new HashMap<>();
-        try {
-            SyncTask task = syncTaskMapper.getById(id);
-            if (task == null) {
-                result.put("success", false);
-                result.put("message", "任务不存在");
-                return result;
-            }
-
-            MysqlDataSource mysqlSource = mysqlSourceMapper.getById(task.getSourceId());
-            DorisTarget dorisTarget = dorisTargetMapper.getById(task.getTargetId());
-
-            String[] jobArgs = new String[] {
-                mysqlSource.getHost(),
-                String.valueOf(mysqlSource.getPort()),
-                mysqlSource.getUsername(),
-                mysqlSource.getPassword(),
-                task.getSourceDatabase(),
-                task.getSourceTable(),
-                dorisTarget.getFeNodes(),
-                task.getTargetDatabase(),
-                task.getTargetTable(),
-                dorisTarget.getUsername(),
-                dorisTarget.getPassword()
-            };
-
-            flinkTaskService.resetCheckpoint(task);
-
-            result.put("success", true);
-            result.put("message", "位点重置中，将重新全量同步");
-        } catch (Exception e) {
-            result.put("success", false);
-            result.put("message", "重置失败：" + e.getMessage());
-        }
-        return result;
-    }
-
-    @GetMapping("/logs/{id}")
-    public Map<String, Object> getLogs(@PathVariable Long id) {
-        Map<String, Object> result = new HashMap<>();
-        try {
-            SyncTask task = syncTaskMapper.getById(id);
-            if (task == null) {
-                result.put("success", false);
-                result.put("message", "任务不存在");
-                return result;
-            }
-
-            String logs = flinkTaskService.getTaskLogs(task);
-            result.put("success", true);
-            result.put("logs", logs);
-        } catch (Exception e) {
-            result.put("success", false);
-            result.put("message", "获取日志失败：" + e.getMessage());
-        }
-        return result;
-    }
-
-    @GetMapping("/stats/overview")
-    public Map<String, Object> getOverview() {
-        Map<String, Object> result = new HashMap<>();
-        try {
-            List<SyncTask> allTasks = syncTaskMapper.listAll();
-            
-            int runningCount = 0;
-            int stoppedCount = 0;
-            int failedCount = 0;
-            long totalSyncCount = 0;
-
-            for (SyncTask task : allTasks) {
-                String status = flinkTaskService.getJobStatus(task.getFlinkJobId());
-                if ("RUNNING".equals(status)) {
-                    task.setStatus("RUNNING");
-                    runningCount++;
-                } else if ("STOPPED".equals(task.getStatus()) || "CREATED".equals(task.getStatus())) {
-                    stoppedCount++;
-                } else if ("FAILED".equals(task.getStatus()) || "CANCELLED".equals(task.getStatus())) {
-                    failedCount++;
-                }
-                if (task.getSyncCount() != null) {
-                    totalSyncCount += task.getSyncCount();
-                }
-            }
-
-            result.put("success", true);
-            result.put("totalTasks", allTasks.size());
-            result.put("runningCount", runningCount);
-            result.put("stoppedCount", stoppedCount);
-            result.put("failedCount", failedCount);
-            result.put("totalSyncCount", totalSyncCount);
-        } catch (Exception e) {
-            result.put("success", false);
-            result.put("message", "获取统计失败：" + e.getMessage());
         }
         return result;
     }

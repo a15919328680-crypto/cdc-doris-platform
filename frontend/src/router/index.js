@@ -11,25 +11,19 @@ const routes = [
         path: '/dashboard',
         name: 'Dashboard',
         meta: { title: '首页大盘', icon: 'Dashboard' },
-        component: () => import('@/views/dashboard/Index.vue')
+        component: () => import('@/views/Dashboard.vue')
       },
       {
-        path: '/mysql-source',
-        name: 'MysqlSource',
-        meta: { title: 'MySQL 数据源', icon: 'Database' },
-        component: () => import('@/views/mysql/Index.vue')
+        path: '/connections',
+        name: 'Connections',
+        meta: { title: '数据库连接', icon: 'Connection' },
+        component: () => import('@/views/DataSources.vue')
       },
       {
-        path: '/doris-target',
-        name: 'DorisTarget',
-        meta: { title: 'Doris 目标库', icon: 'DataLine' },
-        component: () => import('@/views/doris/Index.vue')
-      },
-      {
-        path: '/sync-task',
-        name: 'SyncTask',
-        meta: { title: '同步任务管理', icon: 'Connection' },
-        component: () => import('@/views/task/Index.vue')
+        path: '/sync-tasks',
+        name: 'SyncTasks',
+        meta: { title: '同步任务（YAML）', icon: 'Document' },
+        component: () => import('@/views/SyncTasks.vue')
       },
       {
         path: '/monitor',

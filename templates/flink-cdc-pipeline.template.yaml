@@ -1,0 +1,66 @@
+# Flink CDC 3.x YAML 配置模板
+# 用于 MySQL 到 Doris 实时同步
+
+# ============================================
+# 数据源配置
+# ============================================
+source:
+  type: mysql
+  hostname: ${source_host}          # MySQL 主机地址
+  port: ${source_port}              # MySQL 端口（默认 3306）
+  username: ${source_username}      # MySQL 用户名
+  password: ${source_password}      # MySQL 密码
+  tables: ${source_database_pattern}.${source_table_pattern}  # 表匹配模式，如：db_1\.* 或 db_1\.user_*
+  server-id: ${server_id}           # MySQL server-id 范围（如：5400-5404）
+  server-time-zone: Asia/Shanghai   # 时区设置
+
+# ============================================
+# 数据汇配置
+# ============================================
+sink:
+  type: doris
+  fenodes: ${target_fe_nodes}       # Doris FE 节点地址（如：192.168.1.200:8030）
+  username: ${target_username}      # Doris 用户名
+  password: ${target_password}      # Doris 密码
+  default-database: ${target_database}  # 默认目标数据库
+  table.create.properties.light_schema_change: true  # 允许 schema 变更
+  # 其他可选配置：
+  # table.create.properties.replication_num: "3"  # 副本数
+  # table.create.properties.buckets: "auto"       # 分桶策略
+
+# ============================================
+# 路由规则（表映射）
+# ============================================
+route:
+  # 方案 1：整库同步 - 自动映射所有表
+  - source-table: ${source_database_pattern}\.*
+    sink-table: ${target_database}.\${source_table}
+  
+  # 方案 2：指定表映射（可选）
+  # - source-table: db_1\.users
+  #   sink-table: doris_db\.ods_users
+  # - source-table: db_1\.orders
+  #   sink-table: doris_db\.ods_orders
+  
+  # 方案 3：多表合一（可选）
+  # - source-table: db_\d+\.user_\d+
+  #   sink-table: doris_db\.ods_users_all
+
+# ============================================
+# Pipeline 配置
+# ============================================
+pipeline:
+  name: ${task_name}                # 任务名称
+  parallelism: ${parallelism}       # 并行度（建议 2-4）
+  
+# ============================================
+# 高级配置（可选）
+# ============================================
+# transformer:
+#   - source-table: db_1\.table1
+#     filters:
+#       - "age > 18"
+#     projections:
+#       - "id"
+#       - "name"
+#       - "CONCAT(first_name, '_', last_name) AS full_name"
