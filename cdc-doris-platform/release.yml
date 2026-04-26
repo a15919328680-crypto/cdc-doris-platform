@@ -1,0 +1,26 @@
+# Release Configuration
+
+name: Release
+draft: false
+prerelease: false
+
+# Assets to include in release
+artifacts:
+  - cdc-doris-platform/backend/target/cdc-doris-platform-1.0.0.jar
+  - cdc-doris-platform/flink-job/target/cdc-doris-job-1.0.0-jar-with-dependencies.jar
+  - cdc-doris-platform/deploy.sh
+  - cdc-doris-platform/quickstart.sh
+
+# Release notes template
+changelog:
+  sections:
+    - title: "🚀 新功能"
+      labels: ["feat", "feature"]
+    - title: "🐛 Bug 修复"
+      labels: ["fix", "bug"]
+    - title: "📝 文档更新"
+      labels: ["docs", "documentation"]
+    - title: "⚡ 性能优化"
+      labels: ["perf", "performance"]
+    - title: "🔧 其他改动"
+      labels: []
