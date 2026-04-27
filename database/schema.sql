@@ -56,3 +56,50 @@ CREATE TABLE IF NOT EXISTS `task_error_log` (
     `resolved` TINYINT DEFAULT 0,
     FOREIGN KEY (`task_id`) REFERENCES `sync_task`(`id`)
 );
+
+CREATE TABLE IF NOT EXISTS `task_run_log` (
+    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `task_id` BIGINT NOT NULL,
+    `log_type` VARCHAR(20) COMMENT 'START/STOP/CHECKPOINT/SAVEPOINT',
+    `log_level` VARCHAR(10) DEFAULT 'INFO',
+    `message` TEXT,
+    `detail` TEXT,
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`task_id`) REFERENCES `sync_task`(`id`)
+);
+
+-- Flink 集群配置表
+CREATE TABLE IF NOT EXISTS `flink_cluster` (
+    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `name` VARCHAR(100) NOT NULL COMMENT '集群名称',
+    `deploy_mode` VARCHAR(20) NOT NULL COMMENT '部署模式：STANDALONE/DOCKER/KUBERNETES/YARN',
+    `rest_url` VARCHAR(200) COMMENT 'REST API 地址（http://host:port）',
+    `flink_home` VARCHAR(200) COMMENT 'Flink 安装路径（命令行模式）',
+    `k8s_namespace` VARCHAR(50) COMMENT 'K8s 命名空间',
+    `k8s_config` TEXT COMMENT 'K8s 配置 JSON',
+    `docker_compose_file` VARCHAR(200) COMMENT 'Docker Compose 文件路径',
+    `version` VARCHAR(20) COMMENT 'Flink 版本',
+    `status` VARCHAR(20) DEFAULT 'INACTIVE' COMMENT 'CONNECTED/INACTIVE/ERROR',
+    `last_check_time` DATETIME COMMENT '最后检查时间',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- JAR 包管理表
+CREATE TABLE IF NOT EXISTS `jar_package` (
+    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
+    `name` VARCHAR(100) NOT NULL COMMENT 'JAR 包名称',
+    `file_path` VARCHAR(500) NOT NULL COMMENT '存储路径',
+    `file_size` BIGINT COMMENT '文件大小（字节）',
+    `checksum` VARCHAR(64) COMMENT 'SHA256 校验和',
+    `version` VARCHAR(50) COMMENT '版本号',
+    `flink_version` VARCHAR(20) COMMENT '适用 Flink 版本',
+    `description` VARCHAR(500) COMMENT '描述',
+    `upload_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `is_active` TINYINT DEFAULT 1 COMMENT '是否启用'
+);
+
+-- 任务与集群关联表（更新 sync_task 表）
+ALTER TABLE `sync_task` ADD COLUMN `flink_cluster_id` BIGINT COMMENT '关联的 Flink 集群 ID';
+ALTER TABLE `sync_task` ADD COLUMN `flink_job_id` VARCHAR(100) COMMENT 'Flink 任务 ID';
+ALTER TABLE `sync_task` ADD COLUMN `submit_time` DATETIME COMMENT '提交时间';

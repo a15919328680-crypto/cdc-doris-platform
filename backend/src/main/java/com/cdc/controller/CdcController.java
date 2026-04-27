@@ -1,12 +1,21 @@
 package com.cdc.controller;
 
+import com.cdc.flink.FlinkClient;
+import com.cdc.mapper.FlinkClusterMapper;
+import com.cdc.mapper.JarPackageMapper;
 import com.cdc.service.FlinkCDCYamlService;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @Slf4j
 @RestController
@@ -15,6 +24,12 @@ public class CdcController {
 
     @Autowired
     private SqlSessionTemplate sqlSession;
+    
+    @Autowired
+    private FlinkClusterMapper clusterMapper;
+    
+    @Autowired
+    private JarPackageMapper jarPackageMapper;
 
     @Autowired
     private FlinkCDCYamlService yamlService;
@@ -508,6 +523,182 @@ public class CdcController {
             result.put("message", e.getMessage());
             result.put("runLogs", new java.util.ArrayList<>());
             result.put("errorLogs", new java.util.ArrayList<>());
+        }
+        return result;
+    }
+    
+    // ==================== Flink 集群管理 ====================
+    
+    @GetMapping("/clusters")
+    public List<Map<String, Object>> listClusters() {
+        return clusterMapper.listAll();
+    }
+    
+    @GetMapping("/clusters/{id}")
+    public Map<String, Object> getCluster(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> cluster = clusterMapper.getById(id);
+        result.put("success", cluster != null);
+        result.put("cluster", cluster);
+        return result;
+    }
+    
+    @PostMapping("/clusters")
+    public Map<String, Object> addCluster(@RequestBody Map<String, Object> cluster) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            cluster.put("status", "INACTIVE");
+            clusterMapper.insert(cluster);
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @PutMapping("/clusters/{id}")
+    public Map<String, Object> updateCluster(@PathVariable Long id, @RequestBody Map<String, Object> updates) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            updates.put("id", id);
+            clusterMapper.update(updates);
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @DeleteMapping("/clusters/{id}")
+    public Map<String, Object> deleteCluster(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            clusterMapper.delete(id);
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @PostMapping("/clusters/{id}/test")
+    public Map<String, Object> testCluster(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> cluster = clusterMapper.getById(id);
+            if (cluster == null) {
+                result.put("success", false);
+                result.put("message", "集群不存在");
+                return result;
+            }
+            
+            FlinkClient client = new FlinkClient(cluster);
+            Map<String, Object> versionInfo = client.checkVersion();
+            
+            if ((Boolean) versionInfo.get("success")) {
+                clusterMapper.updateStatus(id, "CONNECTED");
+                cluster.put("version", versionInfo.get("version"));
+                clusterMapper.update(cluster);
+            } else {
+                clusterMapper.updateStatus(id, "ERROR");
+            }
+            
+            result.putAll(versionInfo);
+        } catch (Exception e) {
+            clusterMapper.updateStatus(id, "ERROR");
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    // ==================== JAR 包管理 ====================
+    
+    @GetMapping("/jars")
+    public List<Map<String, Object>> listJars() {
+        return jarPackageMapper.listAll();
+    }
+    
+    @PostMapping("/jars/upload")
+    public Map<String, Object> uploadJar(@RequestParam("file") MultipartFile file,
+                                         @RequestParam(value = "description", required = false) String description) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            // 创建 uploads 目录
+            String uploadDir = System.getProperty("java.io.tmpdir") + "/cdc-uploads";
+            new File(uploadDir).mkdirs();
+            
+            // 保存文件
+            String fileName = file.getOriginalFilename();
+            String filePath = uploadDir + "/" + fileName;
+            File destFile = new File(filePath);
+            file.transferTo(destFile);
+            
+            // 计算 SHA256
+            byte[] fileBytes = Files.readAllBytes(Paths.get(filePath));
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = md.digest(fileBytes);
+            StringBuilder checksum = new StringBuilder();
+            for (byte b : hashBytes) {
+                checksum.append(String.format("%02x", b));
+            }
+            
+            // 解析版本信息（从文件名尝试提取）
+            String version = "unknown";
+            String flinkVersion = "unknown";
+            if (fileName.contains("flink")) {
+                String[] parts = fileName.split("-");
+                for (String part : parts) {
+                    if (part.matches("\\d+\\.\\d+\\.\\d+")) {
+                        flinkVersion = part;
+                        break;
+                    }
+                }
+            }
+            
+            Map<String, Object> jarInfo = new HashMap<>();
+            jarInfo.put("name", fileName);
+            jarInfo.put("filePath", filePath);
+            jarInfo.put("fileSize", file.getSize());
+            jarInfo.put("checksum", checksum.toString());
+            jarInfo.put("version", version);
+            jarInfo.put("flinkVersion", flinkVersion);
+            jarInfo.put("description", description);
+            
+            jarPackageMapper.insert(jarInfo);
+            
+            result.put("success", true);
+            result.put("jarId", jarInfo.get("id"));
+            result.put("checksum", checksum.toString());
+        } catch (IOException e) {
+            result.put("success", false);
+            result.put("message", "文件保存失败：" + e.getMessage());
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @DeleteMapping("/jars/{id}")
+    public Map<String, Object> deleteJar(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> jar = jarPackageMapper.getById(id);
+            if (jar != null) {
+                String filePath = (String) jar.get("file_path");
+                if (filePath != null) {
+                    Files.deleteIfExists(Paths.get(filePath));
+                }
+            }
+            jarPackageMapper.delete(id);
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
         }
         return result;
     }

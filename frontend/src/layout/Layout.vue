@@ -23,6 +23,14 @@
           <el-icon><Document /></el-icon>
           <span>YAML 任务</span>
         </router-link>
+        <router-link to="/clusters" class="nav-item" active-class="active">
+          <el-icon><Server /></el-icon>
+          <span>Flink 集群</span>
+        </router-link>
+        <router-link to="/jars" class="nav-item" active-class="active">
+          <el-icon><Upload /></el-icon>
+          <span>JAR 包管理</span>
+        </router-link>
       </nav>
       <div class="sidebar-footer">
         <div class="version">v3.0</div>
@@ -45,6 +53,14 @@
         <router-link to="/tasks" class="nav-item" @click="drawer = false">
           <el-icon><Document /></el-icon>
           <span>YAML 任务</span>
+        </router-link>
+        <router-link to="/clusters" class="nav-item" @click="drawer = false">
+          <el-icon><Server /></el-icon>
+          <span>Flink 集群</span>
+        </router-link>
+        <router-link to="/jars" class="nav-item" @click="drawer = false">
+          <el-icon><Upload /></el-icon>
+          <span>JAR 包管理</span>
         </router-link>
       </nav>
     </el-drawer>
