@@ -59,9 +59,23 @@ public class CdcController {
     public Map<String, Object> addTask(@RequestBody Map<String, Object> task) {
         Map<String, Object> result = new HashMap<>();
         try {
-            List<Map<String, Object>> connections = listConnections();
-            Map<String, Object> source = connections.stream().filter(c -> c.get("id").equals(task.get("sourceId"))).findFirst().orElse(null);
-            Map<String, Object> target = connections.stream().filter(c -> c.get("id").equals(task.get("targetId"))).findFirst().orElse(null);
+            List<Map<String, Object>> connections = sqlSession.selectList("com.cdc.mapper.ConnectionMapper.listAll");
+            Object sourceIdObj = task.get("sourceId");
+            Object targetIdObj = task.get("targetId");
+            long sourceId = sourceIdObj instanceof Number ? ((Number) sourceIdObj).longValue() : Long.parseLong(sourceIdObj.toString());
+            long targetId = targetIdObj instanceof Number ? ((Number) targetIdObj).longValue() : Long.parseLong(targetIdObj.toString());
+            
+            Map<String, Object> source = connections.stream().filter(c -> {
+                Object cId = c.get("id");
+                long cIdLong = cId instanceof Number ? ((Number) cId).longValue() : Long.parseLong(cId.toString());
+                return cIdLong == sourceId;
+            }).findFirst().orElse(null);
+            
+            Map<String, Object> target = connections.stream().filter(c -> {
+                Object cId = c.get("id");
+                long cIdLong = cId instanceof Number ? ((Number) cId).longValue() : Long.parseLong(cId.toString());
+                return cIdLong == targetId;
+            }).findFirst().orElse(null);
             
             if (source == null || target == null) {
                 result.put("success", false);
@@ -74,18 +88,31 @@ public class CdcController {
                 source, target,
                 (String) task.get("sourceDatabase"),
                 (String) task.get("targetDatabase"),
-                task.get("parallelism") != null ? (Integer) task.get("parallelism") : 2
+                task.get("parallelism") != null ? ((Number) task.get("parallelism")).intValue() : 2
             );
             
-            task.put("yamlConfig", yaml);
-            task.put("status", "CREATED");
-            sqlSession.insert("com.cdc.mapper.TaskMapper.insert", task);
+            // 确保类型正确
+            Integer parallelismVal = task.get("parallelism") != null ? ((Number) task.get("parallelism")).intValue() : 2;
+            
+            Map<String, Object> insertTask = new HashMap<>();
+            insertTask.put("taskName", task.get("taskName"));
+            insertTask.put("sourceId", sourceId);
+            insertTask.put("sourceDatabase", task.get("sourceDatabase"));
+            insertTask.put("sourceTable", task.get("sourceTable"));
+            insertTask.put("targetId", targetId);
+            insertTask.put("targetDatabase", task.get("targetDatabase"));
+            insertTask.put("parallelism", parallelismVal);
+            insertTask.put("yamlConfig", yaml);
+            insertTask.put("status", "CREATED");
+            
+            sqlSession.insert("com.cdc.mapper.TaskMapper.insert", insertTask);
             
             result.put("success", true);
             result.put("yaml", yaml);
         } catch (Exception e) {
+            e.printStackTrace();
             result.put("success", false);
-            result.put("message", e.getMessage());
+            result.put("message", "错误：" + e.getMessage() + " [" + e.getClass().getSimpleName() + "]");
         }
         return result;
     }
@@ -103,6 +130,132 @@ public class CdcController {
         return result;
     }
 
+    @GetMapping("/tasks/{id}/detail")
+    public Map<String, Object> getTaskDetail(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
+            if (task != null) {
+                result.put("success", true);
+                result.put("task", task);
+            } else {
+                result.put("success", false);
+                result.put("message", "任务不存在");
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PutMapping("/tasks/{id}")
+    public Map<String, Object> updateTask(@PathVariable Long id, @RequestBody Map<String, Object> updates) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
+            if (task == null) {
+                result.put("success", false);
+                result.put("message", "任务不存在");
+                return result;
+            }
+            
+            for (Map.Entry<String, Object> entry : updates.entrySet()) {
+                String key = entry.getKey();
+                if (!"id".equals(key) && task.containsKey(key)) {
+                    sqlSession.update("com.cdc.mapper.TaskMapper.updateField", 
+                        java.util.Map.of("id", id, "field", key, "value", entry.getValue()));
+                }
+            }
+            
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PutMapping("/tasks/{id}/yaml")
+    public Map<String, Object> updateTaskYaml(@PathVariable Long id, @RequestBody Map<String, String> yamlData) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
+            if (task == null) {
+                result.put("success", false);
+                result.put("message", "任务不存在");
+                return result;
+            }
+            
+            String yamlConfig = yamlData.get("yamlConfig");
+            if (yamlConfig == null || yamlConfig.isEmpty()) {
+                result.put("success", false);
+                result.put("message", "YAML 配置不能为空");
+                return result;
+            }
+            
+            sqlSession.update("com.cdc.mapper.TaskMapper.updateYaml", 
+                java.util.Map.of("id", id, "yamlConfig", yamlConfig));
+            
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/tasks/{id}/checkpoint")
+    public Map<String, Object> triggerCheckpoint(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> param = new HashMap<>();
+            param.put("taskId", id);
+            param.put("checkpointId", System.currentTimeMillis());
+            param.put("status", "TRIGGERED");
+            sqlSession.insert("com.cdc.mapper.TaskMapper.insertCheckpoint", param);
+            result.put("success", true);
+            result.put("checkpointId", param.get("checkpointId"));
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/tasks/{id}/savepoint")
+    public Map<String, Object> triggerSavepoint(@PathVariable Long id, @RequestBody(required = false) Map<String, String> params) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String savepointPath = params != null ? params.get("path") : "/checkpoints/savepoint-" + System.currentTimeMillis();
+            Map<String, Object> param = new HashMap<>();
+            param.put("taskId", id);
+            param.put("savepointPath", savepointPath);
+            param.put("status", "TRIGGERED");
+            sqlSession.insert("com.cdc.mapper.TaskMapper.insertCheckpoint", param);
+            result.put("success", true);
+            result.put("savepointPath", savepointPath);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @GetMapping("/tasks/{id}/errors")
+    public Map<String, Object> getTaskErrors(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<Map<String, Object>> errors = sqlSession.selectList("com.cdc.mapper.TaskMapper.getTaskErrors", id);
+            result.put("success", true);
+            result.put("errors", errors);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
     @DeleteMapping("/tasks/{id}")
     public Map<String, Object> deleteTask(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
@@ -112,6 +265,249 @@ public class CdcController {
         } catch (Exception e) {
             result.put("success", false);
             result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/connections/{id}/test")
+    public Map<String, Object> testConnection(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> conn = sqlSession.selectOne("com.cdc.mapper.ConnectionMapper.getById", id);
+            if (conn == null) {
+                result.put("success", false);
+                result.put("message", "连接不存在");
+                return result;
+            }
+            String url = String.format("jdbc:mysql://%s:%d/?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&connectTimeout=3000&socketTimeout=3000",
+                    conn.get("host"), Integer.parseInt(conn.get("port").toString()));
+            try (java.sql.Connection c = java.sql.DriverManager.getConnection(url,
+                    (String) conn.get("username"), (String) conn.get("password"))) {
+                result.put("success", true);
+                result.put("message", "连接成功！响应时间：" + System.currentTimeMillis() + "ms");
+            }
+        } catch (Exception e) {
+            String errorMsg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+            result.put("success", false);
+            result.put("message", "连接失败：" + errorMsg);
+        }
+        return result;
+    }
+
+    @PostMapping("/connections/batch-delete")
+    public Map<String, Object> batchDeleteConnections(@RequestBody List<Long> ids) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            for (Long id : ids) {
+                sqlSession.delete("com.cdc.mapper.ConnectionMapper.delete", id);
+            }
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/tasks/batch-delete")
+    public Map<String, Object> batchDeleteTasks(@RequestBody List<Long> ids) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            for (Long id : ids) {
+                sqlSession.delete("com.cdc.mapper.TaskMapper.delete", id);
+            }
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/tasks/{id}/start")
+    public Map<String, Object> startTask(@PathVariable Long id,
+                                         @RequestBody(required = false) Map<String, String> params) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
+            if (task == null) {
+                result.put("success", false);
+                result.put("message", "任务不存在");
+                return result;
+            }
+            
+            String status = (String) task.get("status");
+            if ("RUNNING".equals(status)) {
+                result.put("success", false);
+                result.put("message", "任务已在运行中");
+                return result;
+            }
+            
+            String restoreMode = params != null ? params.get("restoreMode") : "initial";
+            String savepointPath = params != null ? params.get("savepointPath") : null;
+            String checkpointId = params != null ? params.get("checkpointId") : null;
+            
+            Map<String, Object> param = new HashMap<>();
+            param.put("id", id);
+            param.put("status", "RUNNING");
+            if (restoreMode != null) param.put("restoreMode", restoreMode);
+            if (savepointPath != null) param.put("savepointPath", savepointPath);
+            if (checkpointId != null) param.put("checkpointId", checkpointId);
+            
+            sqlSession.update("com.cdc.mapper.TaskMapper.updateStatus", param);
+            
+            // 记录启动日志
+            Map<String, Object> logEntry = new HashMap<>();
+            logEntry.put("taskId", id);
+            logEntry.put("logType", "START");
+            logEntry.put("logLevel", "INFO");
+            String startMsg = "任务启动成功";
+            if ("checkpoint".equals(restoreMode)) startMsg += "，从 Checkpoint 恢复";
+            else if ("savepoint".equals(restoreMode)) startMsg += "，从 Savepoint 恢复";
+            else startMsg += "，使用初始化模式";
+            logEntry.put("message", startMsg);
+            sqlSession.insert("com.cdc.mapper.TaskMapper.insertRunLog", logEntry);
+            
+            result.put("success", true);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    @PostMapping("/tasks/{id}/stop")
+    public Map<String, Object> stopTask(@PathVariable Long id,
+                                        @RequestBody(required = false) Map<String, Boolean> params) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
+            if (task == null) {
+                result.put("success", false);
+                result.put("message", "任务不存在");
+                return result;
+            }
+            
+            String status = (String) task.get("status");
+            if ("STOPPED".equals(status) || "CREATED".equals(status)) {
+                result.put("success", false);
+                result.put("message", "任务未在运行状态");
+                return result;
+            }
+            
+            Boolean createSavepoint = params != null ? params.get("createSavepoint") : false;
+            String savepointPath = null;
+            
+            if (createSavepoint) {
+                savepointPath = "/savepoints/task-" + id + "-" + System.currentTimeMillis();
+                Map<String, Object> checkpoint = new HashMap<>();
+                checkpoint.put("taskId", id);
+                checkpoint.put("savepointPath", savepointPath);
+                checkpoint.put("status", "COMPLETED");
+                sqlSession.insert("com.cdc.mapper.TaskMapper.insertCheckpoint", checkpoint);
+            }
+            
+            Map<String, Object> param = new HashMap<>();
+            param.put("id", id);
+            param.put("status", "STOPPED");
+            if (savepointPath != null) param.put("lastSavepointPath", savepointPath);
+            sqlSession.update("com.cdc.mapper.TaskMapper.updateStatus", param);
+            
+            // 记录停止日志
+            Map<String, Object> logEntry = new HashMap<>();
+            logEntry.put("taskId", id);
+            logEntry.put("logType", "STOP");
+            logEntry.put("logLevel", "INFO");
+            String stopMsg = "任务已停止";
+            if (savepointPath != null) stopMsg += "，已创建 Savepoint: " + savepointPath;
+            logEntry.put("message", stopMsg);
+            sqlSession.insert("com.cdc.mapper.TaskMapper.insertRunLog", logEntry);
+            
+            result.put("success", true);
+            result.put("savepointPath", savepointPath);
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @GetMapping("/tasks/{id}/logs")
+    public Map<String, Object> getTaskLogs(@PathVariable Long id,
+                                           @RequestParam(required = false) String type) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            log.info("Querying logs for task id: {}", id);
+            String url = "jdbc:mysql://localhost:3306/cdc_platform?useSSL=false&serverTimezone=UTC";
+            try (java.sql.Connection c = java.sql.DriverManager.getConnection(url, "root", "root123")) {
+                log.info("DB connection established");
+                
+                // 只查询任务启动/停止相关的日志（本次任务生命周期）
+                java.sql.PreparedStatement stmt = c.prepareStatement(
+                    "SELECT * FROM task_run_log WHERE task_id = ? AND log_type IN ('START', 'STOP') " +
+                    "ORDER BY create_time DESC LIMIT 100");
+                stmt.setLong(1, id);
+                
+                java.sql.ResultSet rs = stmt.executeQuery();
+                log.info("Query executed for task lifecycle logs");
+                
+                java.util.List<Map<String, Object>> logs = new java.util.ArrayList<>();
+                int count = 0;
+                java.sql.Timestamp lastStartTime = null;
+                while (rs.next()) {
+                    count++;
+                    Map<String, Object> logEntry = new HashMap<>();
+                    logEntry.put("id", rs.getLong("id"));
+                    logEntry.put("event_type", rs.getString("log_type"));
+                    logEntry.put("timestamp", rs.getTimestamp("create_time"));
+                    logEntry.put("message", rs.getString("message"));
+                    logEntry.put("logLevel", rs.getString("log_level"));
+                    logEntry.put("logType", rs.getString("log_type"));
+                    logs.add(logEntry);
+                    
+                    // 记录最近一次启动时间
+                    if ("START".equals(rs.getString("log_type")) && lastStartTime == null) {
+                        lastStartTime = rs.getTimestamp("create_time");
+                    }
+                }
+                log.info("Found {} lifecycle logs", count);
+                
+                // 查询错误日志（只查询最近一次启动后的错误）
+                java.util.List<Map<String, Object>> errorLogs = new java.util.ArrayList<>();
+                String errorSql = lastStartTime != null ?
+                    "SELECT * FROM task_error_log WHERE task_id = ? AND occur_time >= ? ORDER BY occur_time DESC LIMIT 100" :
+                    "SELECT * FROM task_error_log WHERE task_id = ? ORDER BY occur_time DESC LIMIT 100";
+                    
+                try (java.sql.PreparedStatement errorStmt = c.prepareStatement(errorSql)) {
+                    errorStmt.setLong(1, id);
+                    if (lastStartTime != null) {
+                        errorStmt.setTimestamp(2, lastStartTime);
+                    }
+                    java.sql.ResultSet errorRs = errorStmt.executeQuery();
+                    int errorCount = 0;
+                    while (errorRs.next()) {
+                        errorCount++;
+                        Map<String, Object> errorLog = new HashMap<>();
+                        errorLog.put("id", errorRs.getLong("id"));
+                        errorLog.put("timestamp", errorRs.getTimestamp("occur_time"));
+                        errorLog.put("message", errorRs.getString("error_message"));
+                        errorLog.put("stackTrace", errorRs.getString("stack_trace"));
+                        errorLog.put("errorType", errorRs.getString("error_type"));
+                        errorLogs.add(errorLog);
+                    }
+                    log.info("Found {} error logs since last start", errorCount);
+                }
+                
+                result.put("success", true);
+                result.put("runLogs", logs);
+                result.put("errorLogs", errorLogs);
+            }
+        } catch (Exception e) {
+            log.error("Error querying logs", e);
+            result.put("success", false);
+            result.put("message", e.getMessage());
+            result.put("runLogs", new java.util.ArrayList<>());
+            result.put("errorLogs", new java.util.ArrayList<>());
         }
         return result;
     }

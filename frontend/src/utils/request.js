@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-const request = axios.create({ baseURL: 'http://localhost:8080', timeout: 30000 })
+const request = axios.create({ baseURL: '/api', timeout: 30000 })
 
 request.interceptors.response.use(
   (response) => response.data,

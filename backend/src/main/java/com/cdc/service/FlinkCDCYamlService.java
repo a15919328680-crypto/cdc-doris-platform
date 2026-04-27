@@ -22,7 +22,7 @@ public class FlinkCDCYamlService {
         yaml.append("  username: ").append(source.get("username")).append("\n");
         yaml.append("  password: ").append(source.get("password")).append("\n");
         yaml.append("  tables: ").append(sourceDb).append("\\..*\n");
-        yaml.append("  server-id: ").append(generateServerId((Integer) source.get("id"))).append("\n");
+        yaml.append("  server-id: ").append(generateServerId(source.get("id"))).append("\n");
         yaml.append("  server-time-zone: Asia/Shanghai\n\n");
         
         yaml.append("sink:\n");
@@ -44,8 +44,10 @@ public class FlinkCDCYamlService {
         return yaml.toString();
     }
 
-    private String generateServerId(Integer id) {
-        long base = 5000 + (id != null ? id * 100 : 0);
+    private String generateServerId(Object idObj) {
+        long id = idObj != null ? 
+            (idObj instanceof Number ? ((Number) idObj).longValue() : Long.parseLong(idObj.toString())) : 0;
+        long base = 5000 + (id * 100);
         return base + "-" + (base + 4);
     }
 }

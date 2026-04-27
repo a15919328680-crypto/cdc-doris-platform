@@ -1,11 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Layout from '@/layout/Layout.vue'
+import Layout from '../layout/Layout.vue'
+import Connections from '../views/Connections.vue'
+import Tasks from '../views/Tasks.vue'
 
 const routes = [{
   path: '/', component: Layout, children: [
     { path: '', redirect: '/connections' },
-    { path: 'connections', component: () => import('@/views/Connections.vue') },
-    { path: 'tasks', component: () => import('@/views/Tasks.vue') }
+    { path: 'connections', component: Connections },
+    { path: 'tasks', component: Tasks }
   ]
 }]
 

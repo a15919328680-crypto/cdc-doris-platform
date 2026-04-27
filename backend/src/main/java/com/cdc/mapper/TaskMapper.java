@@ -14,10 +14,32 @@ public interface TaskMapper {
     Map<String, Object> getById(Long id);
     
     @Insert("INSERT INTO sync_task (task_name, source_id, source_database, source_table, target_id, target_database, parallelism, yaml_config, status) " +
-            "VALUES (#{taskName}, #{sourceId}, #{sourceDatabase}, #{sourceTable}, #{targetId}, #{targetDatabase}, #{parallelism}, #{yamlConfig}, #{status})")
+            "VALUES (#{taskName}, #{sourceId,jdbcType=BIGINT}, #{sourceDatabase}, #{sourceTable}, #{targetId,jdbcType=BIGINT}, #{targetDatabase}, #{parallelism,jdbcType=INTEGER}, #{yamlConfig}, #{status})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(Map<String, Object> task);
     
     @Delete("DELETE FROM sync_task WHERE id = #{id}")
     int delete(Long id);
+    
+    @Update("UPDATE sync_task SET status = #{status} WHERE id = #{id}")
+    void updateStatus(Map<String, Object> param);
+    
+    @Update("UPDATE sync_task SET ${field} = #{value} WHERE id = #{id}")
+    void updateField(Map<String, Object> param);
+    
+    @Update("UPDATE sync_task SET yaml_config = #{yamlConfig} WHERE id = #{id}")
+    void updateYaml(Map<String, Object> param);
+    
+    @Insert("INSERT INTO task_run_log (task_id, log_type, log_level, message) " +
+            "VALUES (#{taskId}, #{logType}, #{logLevel}, #{message})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertRunLog(Map<String, Object> param);
+    
+    @Insert("INSERT INTO task_checkpoint (task_id, checkpoint_id, savepoint_path, status) " +
+            "VALUES (#{taskId}, #{checkpointId}, #{savepointPath}, #{status})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertCheckpoint(Map<String, Object> param);
+    
+    @Select("SELECT * FROM task_error_log WHERE task_id = #{taskId} ORDER BY occur_time DESC LIMIT 50")
+    List<Map<String, Object>> getTaskErrors(Long taskId);
 }
