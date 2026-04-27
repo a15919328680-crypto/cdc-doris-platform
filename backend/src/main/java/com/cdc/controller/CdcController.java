@@ -341,7 +341,7 @@ public class CdcController {
 
     @PostMapping("/tasks/{id}/start")
     public Map<String, Object> startTask(@PathVariable Long id,
-                                         @RequestBody(required = false) Map<String, String> params) {
+                                         @RequestBody(required = false) Map<String, Object> params) {
         Map<String, Object> result = new HashMap<>();
         try {
             Map<String, Object> task = sqlSession.selectOne("com.cdc.mapper.TaskMapper.getById", id);
@@ -358,33 +358,75 @@ public class CdcController {
                 return result;
             }
             
-            String restoreMode = params != null ? params.get("restoreMode") : "initial";
-            String savepointPath = params != null ? params.get("savepointPath") : null;
-            String checkpointId = params != null ? params.get("checkpointId") : null;
+            // 获取集群配置
+            Long clusterId = params != null ? Long.valueOf(params.get("clusterId").toString()) : null;
+            if (clusterId == null) {
+                result.put("success", false);
+                result.put("message", "请指定 Flink 集群");
+                return result;
+            }
             
-            Map<String, Object> param = new HashMap<>();
-            param.put("id", id);
-            param.put("status", "RUNNING");
-            if (restoreMode != null) param.put("restoreMode", restoreMode);
-            if (savepointPath != null) param.put("savepointPath", savepointPath);
-            if (checkpointId != null) param.put("checkpointId", checkpointId);
+            Map<String, Object> cluster = sqlSession.selectOne(
+                "com.cdc.mapper.FlinkClusterMapper.getById", clusterId);
+            if (cluster == null || !"CONNECTED".equals(cluster.get("status"))) {
+                result.put("success", false);
+                result.put("message", "Flink 集群不可用");
+                return result;
+            }
             
-            sqlSession.update("com.cdc.mapper.TaskMapper.updateStatus", param);
+            String restoreMode = params != null ? (String) params.get("restoreMode") : "initial";
+            String savepointPath = params != null ? (String) params.get("savepointPath") : null;
+            String checkpointId = params != null ? (String) params.get("checkpointId") : null;
             
-            // 记录启动日志
-            Map<String, Object> logEntry = new HashMap<>();
-            logEntry.put("taskId", id);
-            logEntry.put("logType", "START");
-            logEntry.put("logLevel", "INFO");
-            String startMsg = "任务启动成功";
-            if ("checkpoint".equals(restoreMode)) startMsg += "，从 Checkpoint 恢复";
-            else if ("savepoint".equals(restoreMode)) startMsg += "，从 Savepoint 恢复";
-            else startMsg += "，使用初始化模式";
-            logEntry.put("message", startMsg);
-            sqlSession.insert("com.cdc.mapper.TaskMapper.insertRunLog", logEntry);
+            // 创建 Flink 客户端并提交任务
+            FlinkClient client = new FlinkClient(cluster);
             
-            result.put("success", true);
+            // 获取 YAML 文件路径（临时保存到本地）
+            String yamlContent = (String) task.get("yaml_config");
+            String yamlPath = System.getProperty("java.io.tmpdir") + "/cdc-task-" + id + ".yaml";
+            java.nio.file.Files.write(java.nio.file.Paths.get(yamlPath), yamlContent.getBytes());
+            
+            // 提交任务
+            Map<String, String> submitParams = new HashMap<>();
+            if (restoreMode != null) submitParams.put("restoreMode", restoreMode);
+            if (savepointPath != null) submitParams.put("savepointPath", savepointPath);
+            if (checkpointId != null) submitParams.put("checkpointId", checkpointId);
+            
+            Map<String, Object> submitResult = client.submitJob(yamlPath, submitParams);
+            
+            if ((Boolean) submitResult.get("success")) {
+                String jobId = (String) submitResult.get("jobId");
+                
+                // 更新任务状态
+                Map<String, Object> param = new HashMap<>();
+                param.put("id", id);
+                param.put("status", "RUNNING");
+                param.put("flink_cluster_id", clusterId);
+                param.put("flink_job_id", jobId);
+                param.put("submit_time", new java.util.Date());
+                
+                sqlSession.update("com.cdc.mapper.TaskMapper.updateStatus", param);
+                
+                // 记录启动日志
+                Map<String, Object> logEntry = new HashMap<>();
+                logEntry.put("taskId", id);
+                logEntry.put("logType", "START");
+                logEntry.put("logLevel", "INFO");
+                String startMsg = "任务启动成功，Flink JobID: " + jobId;
+                if ("checkpoint".equals(restoreMode)) startMsg += "，从 Checkpoint 恢复";
+                else if ("savepoint".equals(restoreMode)) startMsg += "，从 Savepoint 恢复";
+                else startMsg += "，使用初始化模式";
+                logEntry.put("message", startMsg);
+                sqlSession.insert("com.cdc.mapper.TaskMapper.insertRunLog", logEntry);
+                
+                result.put("success", true);
+                result.put("jobId", jobId);
+            } else {
+                result.put("success", false);
+                result.put("message", "提交失败：" + submitResult.get("message"));
+            }
         } catch (Exception e) {
+            log.error("Start task failed", e);
             result.put("success", false);
             result.put("message", e.getMessage());
         }

@@ -337,11 +337,25 @@
     </el-dialog>
 
     <!-- 启动确认对话框 -->
-    <el-dialog v-model="showStartConfirm" title="启动任务" width="600px" :close-on-click-modal="false">
+    <el-dialog v-model="showStartConfirm" title="启动任务" width="700px" :close-on-click-modal="false">
       <el-alert type="info" show-icon style="margin-bottom:20px">
-        <template #title>选择任务启动方式</template>
+        <template #title>选择 Flink 集群和启动参数</template>
       </el-alert>
-      <el-form label-width="120px">
+      <el-form :model="startOptions" label-width="140px">
+        <el-form-item label="Flink 集群" required>
+          <el-select v-model="startOptions.clusterId" placeholder="选择要提交的 Flink 集群" style="width:100%" @change="onClusterChange">
+            <el-option v-for="c in clusters" :key="c.id" :label="c.name" :value="c.id">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span>{{c.name}}</span>
+                <el-tag size="small" :type="c.status==='CONNECTED'?'success':'warning'" effect="flat">{{c.status}}</el-tag>
+              </div>
+            </el-option>
+          </el-select>
+          <div style="font-size:12px;color:#8492a6;margin-top:4px">
+            <span v-if="selectedCluster">部署模式：{{selectedCluster.deploy_mode}} | 版本：{{selectedCluster.version || '未知'}}</span>
+          </div>
+        </el-form-item>
+        
         <el-form-item label="启动模式">
           <el-radio-group v-model="startOptions.restoreMode">
             <el-radio label="initial">从头开始</el-radio>
@@ -349,18 +363,20 @@
             <el-radio label="savepoint">从 Savepoint 恢复</el-radio>
           </el-radio-group>
         </el-form-item>
+        
         <el-form-item label="Checkpoint ID" v-if="startOptions.restoreMode === 'checkpoint'">
           <el-select v-model="startOptions.checkpointId" placeholder="选择 Checkpoint" style="width:100%">
-            <el-option v-for="c in checkpointList" :key="c.id" :label="`Checkpoint ${c.id} - ${c.timestamp}`" :value="c.id" />
+            <el-option v-for="c in checkpointList" :key="c.id" :label="`Checkpoint ${c.id}`" :value="c.id" />
           </el-select>
         </el-form-item>
+        
         <el-form-item label="Savepoint 路径" v-if="startOptions.restoreMode === 'savepoint'">
           <el-input v-model="startOptions.savepointPath" placeholder="/savepoints/task-name-timestamp" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showStartConfirm=false">取消</el-button>
-        <el-button type="primary" @click="confirmStart">启动</el-button>
+        <el-button type="primary" @click="confirmStart" :loading="starting">启动任务</el-button>
       </template>
     </el-dialog>
 
@@ -437,7 +453,12 @@ const checkpointList = ref([])
 const logList = ref({ runLogs: [], errorLogs: [] })
 const activeLogTab = ref('run')
 const isMobile = ref(window.innerWidth <= 768)
+const clusters = ref([])
+const selectedCluster = ref(null)
+const starting = ref(false)
+
 const startOptions = ref({
+  clusterId: null,
   restoreMode: 'initial',
   checkpointId: null,
   savepointPath: null
@@ -604,6 +625,7 @@ const resetForm = () => {
 const load = async () => { 
   list.value = await request.get('/tasks')
   connections.value = await request.get('/connections')
+  clusters.value = await request.get('/clusters')
 }
 
 const handleSelectionChange = (val) => { selectedIds.value = val.map(x => x.id) }
@@ -626,32 +648,54 @@ const toggleTask = async (row) => {
       }
     }).catch(() => {})
   } else if (row.status === 'STOPPED' || row.status === 'CREATED') {
-    // 启动任务 - 显示确认对话框
+    // 启动任务 - 加载集群列表并显示确认对话框
     currentActionRow.value = row
-    startOptions.value.restoreMode = 'initial'
-    startOptions.value.checkpointId = null
-    startOptions.value.savepointPath = null
+    startOptions.value = {
+      clusterId: null,
+      restoreMode: 'initial',
+      checkpointId: null,
+      savepointPath: null
+    }
+    selectedCluster.value = null
     showStartConfirm.value = true
   } else if (row.status === 'ERROR') {
     ElMessage.warning('任务处于错误状态，请先查看错误日志')
   }
 }
 
+const onClusterChange = (clusterId) => {
+  selectedCluster.value = clusters.value.find(c => c.id === clusterId)
+}
+
 const confirmStart = async () => {
-  const payload = {}
+  if (!startOptions.value.clusterId) {
+    ElMessage.warning('请选择 Flink 集群')
+    return
+  }
+  
+  const payload = {
+    clusterId: startOptions.value.clusterId
+  }
   if (startOptions.value.restoreMode !== 'initial') {
     payload.restoreMode = startOptions.value.restoreMode
     if (startOptions.value.checkpointId) payload.checkpointId = startOptions.value.checkpointId
     if (startOptions.value.savepointPath) payload.savepointPath = startOptions.value.savepointPath
   }
   
-  const res = await request.post(`/tasks/${currentActionRow.value.id}/start`, payload)
-  if (res.success) {
-    ElMessage.success('任务已启动' + (startOptions.value.restoreMode !== 'initial' ? '（断点续传）' : ''))
-    showStartConfirm.value = false
-    load()
-  } else {
-    ElMessage.error(res.message)
+  starting.value = true
+  try {
+    const res = await request.post(`/tasks/${currentActionRow.value.id}/start`, payload)
+    if (res.success) {
+      ElMessage.success('任务已启动' + (startOptions.value.restoreMode !== 'initial' ? '（断点续传）' : ''))
+      showStartConfirm.value = false
+      load()
+    } else {
+      ElMessage.error(res.message)
+    }
+  } catch (e) {
+    ElMessage.error('启动失败：' + e.message)
+  } finally {
+    starting.value = false
   }
 }
 

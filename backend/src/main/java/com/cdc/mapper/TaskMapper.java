@@ -42,4 +42,12 @@ public interface TaskMapper {
     
     @Select("SELECT * FROM task_error_log WHERE task_id = #{taskId} ORDER BY occur_time DESC LIMIT 50")
     List<Map<String, Object>> getTaskErrors(Long taskId);
+    
+    @Select("SELECT * FROM sync_task WHERE status = #{status} AND flink_job_id IS NOT NULL")
+    List<Map<String, Object>> listByStatus(String status);
+    
+    @Insert("INSERT INTO task_error_log (task_id, error_type, error_message, stack_trace) " +
+            "VALUES (#{taskId}, #{errorType}, #{errorMessage}, #{stackTrace})")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertErrorLog(Map<String, Object> errorLog);
 }
