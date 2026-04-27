@@ -744,4 +744,128 @@ public class CdcController {
         }
         return result;
     }
+    
+    // ==================== JDBC 元数据发现 ====================
+    
+    @GetMapping("/connections/{id}/databases")
+    public Map<String, Object> listDatabases(@PathVariable Long id) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> conn = sqlSession.selectOne(
+                "com.cdc.mapper.ConnectionMapper.getById", id);
+            if (conn == null) {
+                result.put("success", false);
+                result.put("message", "连接不存在");
+                return result;
+            }
+            
+            String url = String.format("jdbc:mysql://%s:%d/?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true",
+                conn.get("host"), Integer.parseInt(conn.get("port").toString()));
+            
+            try (java.sql.Connection c = java.sql.DriverManager.getConnection(url,
+                    (String) conn.get("username"), (String) conn.get("password"));
+                 java.sql.ResultSet rs = c.getMetaData().getCatalogs()) {
+                
+                java.util.List<String> databases = new java.util.ArrayList<>();
+                while (rs.next()) {
+                    String dbName = rs.getString("TABLE_CAT");
+                    if (!dbName.equals("mysql") && !dbName.equals("information_schema") && 
+                        !dbName.equals("performance_schema") && !dbName.equals("sys")) {
+                        databases.add(dbName);
+                    }
+                }
+                
+                result.put("success", true);
+                result.put("databases", databases);
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @GetMapping("/connections/{id}/tables")
+    public Map<String, Object> listTables(@PathVariable Long id,
+                                          @RequestParam String database) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> conn = sqlSession.selectOne(
+                "com.cdc.mapper.ConnectionMapper.getById", id);
+            if (conn == null) {
+                result.put("success", false);
+                result.put("message", "连接不存在");
+                return result;
+            }
+            
+            String url = String.format("jdbc:mysql://%s:%d/%s?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true",
+                conn.get("host"), Integer.parseInt(conn.get("port").toString()), database);
+            
+            try (java.sql.Connection c = java.sql.DriverManager.getConnection(url,
+                    (String) conn.get("username"), (String) conn.get("password"));
+                 java.sql.ResultSet rs = c.getMetaData().getTables(database, database, "%", new String[]{"TABLE"})) {
+                
+                java.util.List<Map<String, Object>> tables = new java.util.ArrayList<>();
+                while (rs.next()) {
+                    String tableName = rs.getString("TABLE_NAME");
+                    if (!tableName.equals("mysql") && !tableName.equals("information_schema")) {
+                        Map<String, Object> table = new HashMap<>();
+                        table.put("name", tableName);
+                        table.put("comment", rs.getString("REMARKS"));
+                        tables.add(table);
+                    }
+                }
+                
+                result.put("success", true);
+                result.put("tables", tables);
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+    
+    @GetMapping("/connections/{id}/columns")
+    public Map<String, Object> listColumns(@PathVariable Long id,
+                                           @RequestParam String database,
+                                           @RequestParam String table) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> conn = sqlSession.selectOne(
+                "com.cdc.mapper.ConnectionMapper.getById", id);
+            if (conn == null) {
+                result.put("success", false);
+                result.put("message", "连接不存在");
+                return result;
+            }
+            
+            String url = String.format("jdbc:mysql://%s:%d/%s?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true",
+                conn.get("host"), Integer.parseInt(conn.get("port").toString()), database);
+            
+            try (java.sql.Connection c = java.sql.DriverManager.getConnection(url,
+                    (String) conn.get("username"), (String) conn.get("password"));
+                 java.sql.ResultSet rs = c.getMetaData().getColumns(database, null, table, "%")) {
+                
+                java.util.List<Map<String, Object>> columns = new java.util.ArrayList<>();
+                while (rs.next()) {
+                    Map<String, Object> col = new HashMap<>();
+                    col.put("name", rs.getString("COLUMN_NAME"));
+                    col.put("type", rs.getString("TYPE_NAME"));
+                    col.put("size", rs.getInt("COLUMN_SIZE"));
+                    col.put("nullable", rs.getInt("NULLABLE") == java.sql.DatabaseMetaData.columnNullable);
+                    col.put("comment", rs.getString("REMARKS"));
+                    col.put("isPk", "YES".equals(rs.getString("IS_AUTOINCREMENT")));
+                    columns.add(col);
+                }
+                
+                result.put("success", true);
+                result.put("columns", columns);
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
 }

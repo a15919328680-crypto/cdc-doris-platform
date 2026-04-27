@@ -15,13 +15,17 @@
         <span>Flink CDC</span>
       </div>
       <nav class="nav-menu">
+        <router-link to="/dashboard" class="nav-item" active-class="active">
+          <el-icon><Monitor /></el-icon>
+          <span>首页</span>
+        </router-link>
         <router-link to="/connections" class="nav-item" active-class="active">
           <el-icon><Connection /></el-icon>
           <span>数据库连接</span>
         </router-link>
         <router-link to="/tasks" class="nav-item" active-class="active">
           <el-icon><Document /></el-icon>
-          <span>YAML 任务</span>
+          <span>同步任务</span>
         </router-link>
         <router-link to="/clusters" class="nav-item" active-class="active">
           <el-icon><Server /></el-icon>
@@ -46,13 +50,17 @@
         </div>
       </template>
       <nav class="nav-menu">
+        <router-link to="/dashboard" class="nav-item" @click="drawer = false">
+          <el-icon><Monitor /></el-icon>
+          <span>首页</span>
+        </router-link>
         <router-link to="/connections" class="nav-item" @click="drawer = false">
           <el-icon><Connection /></el-icon>
           <span>数据库连接</span>
         </router-link>
         <router-link to="/tasks" class="nav-item" @click="drawer = false">
           <el-icon><Document /></el-icon>
-          <span>YAML 任务</span>
+          <span>同步任务</span>
         </router-link>
         <router-link to="/clusters" class="nav-item" @click="drawer = false">
           <el-icon><Server /></el-icon>
