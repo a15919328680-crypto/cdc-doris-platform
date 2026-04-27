@@ -63,18 +63,31 @@
       </div>
       <el-table :data="list" style="width:100%" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="50" />
-        <el-table-column prop="id" label="任务 ID" width="90" />
-        <el-table-column prop="taskName" label="任务名称" min-width="160" show-overflow-tooltip />
-        <el-table-column label="数据流向" min-width="240">
+        <el-table-column prop="id" label="任务 ID" width="80" />
+        <el-table-column prop="taskName" label="任务名称" min-width="150" show-overflow-tooltip />
+        <el-table-column label="Flink 任务" min-width="240">
           <template #default="{row}">
             <div style="display:flex;flex-direction:column;gap:6px">
-              <div style="display:flex;align-items:center;gap:8px">
-                <el-tag size="small" type="warning" effect="light">{{getSourceName(row.source_id)}}</el-tag>
-                <el-tag size="small">{{row.sourceDatabase}}</el-tag>
+              <div style="display:flex;align-items:center;gap:6px" v-if="row.flink_cluster_id">
+                <el-tag size="small" type="success" effect="flat">
+                  <el-icon><Server /></el-icon>
+                  <span style="margin-left:4px">{{getClusterName(row.flink_cluster_id)}}</span>
+                </el-tag>
               </div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <el-tag size="small" type="success" effect="light">{{getTargetName(row.target_id)}}</el-tag>
-                <el-tag size="small">{{row.targetDatabase}}</el-tag>
+              <div v-if="row.flink_job_id" style="font-family:monospace;font-size:12px;color:#555">
+                <el-tag size="small" type="info" effect="plain">{{row.flink_job_id}}</el-tag>
+              </div>
+              <span v-else style="font-size:12px;color:#999">未提交</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="数据流向" min-width="180">
+          <template #default="{row}">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <el-tag size="small" type="warning" effect="light">{{row.source_database}}</el-tag>
+                <span style="font-size:12px;color:#999">→</span>
+                <el-tag size="small" type="success" effect="light">{{row.target_database}}</el-tag>
               </div>
             </div>
           </template>
@@ -500,6 +513,7 @@ const canNext = computed(() => {
 
 const getSourceName = (id) => connections.value.find(c => c.id === id)?.name || '未知'
 const getTargetName = (id) => connections.value.find(c => c.id === id)?.name || '未知'
+const getClusterName = (id) => clusters.value.find(c => c.id === id)?.name || '未知'
 
 // 获取数据库列表（模拟，实际需要后端 API 支持）
 const fetchDatabases = async (connId) => {
